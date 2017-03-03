@@ -8,7 +8,7 @@
     "bigi": "^1.4.1",
     "bip38": "1.4.0",
     "bip39": "^2.2.0",
-    "bitcoinjs-lib": "~1.5.8",
+    "bitcoinjs-lib": "2.3.0",
     "blockexplorer-rpc": "0.0.4",
     "coinkey": "^1.4.0",
     "coinstring": "^2.3.0",
@@ -17,8 +17,7 @@
     "data-storage": "~0.0.4",
     "jsonfile": "^2.2.1",
     "lodash": "^4.16.4",
-    "path-extra": "^1.0.3",
-    "redis": "^0.12.1"
+    "path-extra": "^1.0.3"
   },
   "devDependencies": {
     "chai": "^3.3.0",
