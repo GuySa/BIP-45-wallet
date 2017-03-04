@@ -1,13 +1,6 @@
-var async = require('async')
-var util = require('util')
-var events = require('events')
 var bitcoin = require('bitcoinjs-lib')
 var crypto = require('crypto')
-var CoinKey = require('coinkey')
 var Bip38 = require('bip38')
-var cs = require('coinstring')
-var hash = require('crypto-hashing')
-var BigInteger = require('bigi')
 var bip39 = require('bip39')
 var _ = require('lodash')
 
@@ -17,14 +10,16 @@ var MAX_EMPTY_ADDRESSES = 3
 var mainnetBlockExplorerHost = 'https://explorer.coloredcoins.org'
 var testnetBlockExplorerHost = 'https://testnet.explorer.coloredcoins.org'
 
-var HDWallet = function (settings) {
+var BIP45Wallet = function (settings) {
   var self = this
 
   settings = settings || {}
+
   if (settings.network === 'testnet') {
     settings.blockExplorerHost = settings.blockExplorerHost || testnetBlockExplorerHost
     self.network = bitcoin.networks.testnet
-  } else {
+  } 
+  else {
     settings.blockExplorerHost = settings.blockExplorerHost || mainnetBlockExplorerHost
     self.network = bitcoin.networks.bitcoin
   }
@@ -32,44 +27,56 @@ var HDWallet = function (settings) {
   if (settings.privateSeed && (settings.privateKey || settings.privateSeedWIF)) {
     throw new Error('Can\'t have both privateSeed and privateKey/privateSeedWIF.')
   }
+
   if (settings.veryOldPrivateKey) {
     settings.oldPrivateSeedWIF = new Buffer(settings.veryOldPrivateKey, 'hex')
   }
+
   if (settings.oldPrivateSeed || settings.oldPrivateSeedWIF) {
+
     var oldSeed = settings.oldPrivateSeed || settings.oldPrivateSeedWIF
     oldSeed = crypto.createHash('sha256').update(oldSeed).digest()
     oldSeed = crypto.createHash('sha256').update(oldSeed).digest('hex')
     settings.privateSeed = oldSeed
     console.warn('Deprecated: veryOldPrivateKey, oldPrivateSeed and oldPrivateSeedWIF are deprecated, Please get your new privateSeed (for the same wallet) by getPrivateSeed or getPrivateSeedWIF.')
   }
+
   if (settings.privateKey && settings.privateSeedWIF && settings.privateKey !== settings.privateSeedWIF) {
     throw new Error('Can\'t privateKey and privateSeedWIF should be the same (can use only one).')
   }
+
   self.privateSeed = settings.privateSeed || null
   self.mnemonic = settings.mnemonic || null
+
   if (settings.privateKey) {
     console.warn('Deprecated: Please use privateSeedWIF and not privateKey.')
     settings.privateSeedWIF = settings.privateKey
   }
+
   if (settings.privateSeedWIF) {
     var privateKeySeedBigInt = bitcoin.ECKey.fromWIF(settings.privateSeedWIF, self.network).d
     self.privateSeed = privateKeySeedBigInt.toHex(32)
   }
+  
   if (!self.privateSeed && !self.mnemonic) {
     self.mnemonic = bip39.generateMnemonic()
     self.privateSeed = bip39.mnemonicToSeed(self.mnemonic)
     self.needToScan = false
-  } else {
+  } 
+  else {
     if (self.mnemonic) {
       if (!bip39.validateMnemonic(self.mnemonic)) {
         throw new Error('Bad mnemonic.')
       }
+
       if (self.privateSeed && self.privateSeed !== bip39.mnemonicToSeedHex(self.mnemonic)) {
         throw new Error('mnemonic and privateSeed mismatch.')
       }
+
       self.privateSeed = bip39.mnemonicToSeed(self.mnemonic)
       self.needToScan = true
-    } else {
+    } 
+    else {
       if (!isValidSeed(self.privateSeed)) {
         throw new Error('privateSeed should be a 128-512 bits hex string (32-128 chars), if you are using WIF, use privateSeedWIF instead.')
       }
@@ -91,7 +98,7 @@ var HDWallet = function (settings) {
   self.offline = !!settings.offline
 }
 
-HDWallet.createNewKey = function (network, pass, progressCallback, cosignerIndex) {
+BIP45Wallet.createNewKey = function (network, pass, progressCallback, cosignerIndex) {
   if (typeof network === 'function') {
     progressCallback = network
     network = null
@@ -127,14 +134,14 @@ HDWallet.createNewKey = function (network, pass, progressCallback, cosignerIndex
 
   if (pass) {
     delete answer.privateKey
-    answer.encryptedPrivateKey = HDWallet.encryptPrivateKey(privateKey, pass, progressCallback)
+    answer.encryptedPrivateKey = BIP45Wallet.encryptPrivateKey(privateKey, pass, progressCallback)
   }
 
   return answer
 }
 
-# TODO
-HDWallet.sign = function (unsignedTxHex, privateKey) {
+// TODO
+BIP45Wallet.sign = function (unsignedTxHex, privateKey) {
   var tx = bitcoin.Transaction.fromHex(unsignedTxHex)
   var txb = bitcoin.TransactionBuilder.fromTransaction(tx)
   var insLength = tx.ins.length
@@ -154,7 +161,7 @@ HDWallet.sign = function (unsignedTxHex, privateKey) {
   return tx.toHex()
 }
 
-HDWallet.createTransaction = function (multiSigAddress, outputs, values) {
+BIP45Wallet.createTransaction = function (inputs, outputs, values) {
   var currentTransactionBuilder = new bitcoin.TransactionBuilder()
 
   currentTransactionBuilder.addInput(multiSigAddress, 0)
