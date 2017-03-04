@@ -21,9 +21,17 @@ var NOT_CHANGE = 0
 var BIP45Wallet = function () {
   this.seed = {}
   this.network = 'testnet'
-  this.xPubs = []
+  this.otherXpubs = []
   this.addressIndex = 0
   this.clientAddressIndex = 0
+}
+
+BIP45wallet.prototype.getMyXpub = function () {
+  return this.deriveXpubFromSeed()
+}
+
+BIP45Wallet.prototype.addXpub = function (xpub) {
+  this.otherXpubs.push(xpub)
 }
 
 BIP45Wallet.prototype.getSeed = function () {
@@ -41,14 +49,14 @@ BIP45Wallet.prototype.generateMnemonicSeed = function (password) {
   console.log('Your mnemonic is:\n%s\nWrite it down and don\'t lose it', mnemonic)
 }
 
-BIP45Wallet.prototype.deriveXpubFromSeed = function (cosignerIndex) {
-  m = bitcoin.HDNode.fromBase58(seed, network)
+BIP45Wallet.prototype.deriveXpubFromSeed = function () {
+  m = bitcoin.HDNode.fromBase58(this.seed, this.network)
 
   return m.derivePath("m/").neutered().toBase58()
 }
 
-BIP45Wallet.deriveXprivFromSeed = function (seed, cosignerIndex) {
-  m = bitcoin.HDNode.fromBase58(seed, network)
+BIP45Wallet.prototype.deriveXprivFromSeed = function () {
+  m = bitcoin.HDNode.fromBase58(this.seed, this.network)
 
   return m.derivePath("m/").toBase58()
 }
@@ -65,7 +73,7 @@ BIP45Wallet.derivePrivateKey = function (xPriv, change, addressIndex) {
   return m.derivePath("m/" + change + "/" + addressIndex).keyPair.toWIF()
 }
 
-BIP45Wallet.createTransaction = function (xPubInputs, outputAddress, outputValue, n) {
+BIP45Wallet.prototype.createTransaction = function (outputAddress, outputValue, n) {
   var currentTransactionBuilder = new bitcoin.TransactionBuilder()
 
   var inputs = []
