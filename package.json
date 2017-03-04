@@ -1,5 +1,5 @@
 {
-  "name": "hdwallet",
+  "name": "BIP45Wallet",
   "version": "0.7.1",
   "description": "BIP32 & BIP44 Hierarchical Deterministic Wallet.",
   "main": "src/hdwallet.js",
