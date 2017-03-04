@@ -1,146 +1,119 @@
+var request = require('request')
 var bitcoin = require('bitcoinjs-lib')
 var crypto = require('crypto')
 var Bip38 = require('bip38')
 var bip39 = require('bip39')
 var _ = require('lodash')
 
-var MAX_EMPTY_ACCOUNTS = 3
-var MAX_EMPTY_ADDRESSES = 3
+// concatinate to this prefix the public address to get the last (atmost 200) transactions to this address
+var BLOCKR_ADDR_INFO_REQUEST_URL_PREFIX = 'btc.blockr.io/api/v1/address/unspent/'
 
-var mainnetBlockExplorerHost = 'https://explorer.coloredcoins.org'
-var testnetBlockExplorerHost = 'https://testnet.explorer.coloredcoins.org'
+// concatinate to this prefix the public address to get the last (atmost 200) transactions to this address
+var BLOCKR_ADDR_BALANCE_REQUEST_URL_PREFIX = 'btc.blockr.io/api/v1/address/balance/'
 
-var BIP45Wallet = function (settings) {
-  var self = this
+// make a POST request to this url with the transaction hex in a field called "hex"
+var BLOCKR_PUBLISH_TRANSACTION_URL = 'http://btc.blockr.io/api/v1/tx/push'
 
-  settings = settings || {}
+var CHANGE = 1
+var NOT_CHANGE = 0
 
-  if (settings.network === 'testnet') {
-    settings.blockExplorerHost = settings.blockExplorerHost || testnetBlockExplorerHost
-    self.network = bitcoin.networks.testnet
-  } 
-  else {
-    settings.blockExplorerHost = settings.blockExplorerHost || mainnetBlockExplorerHost
-    self.network = bitcoin.networks.bitcoin
-  }
 
-  if (settings.privateSeed && (settings.privateKey || settings.privateSeedWIF)) {
-    throw new Error('Can\'t have both privateSeed and privateKey/privateSeedWIF.')
-  }
-
-  if (settings.veryOldPrivateKey) {
-    settings.oldPrivateSeedWIF = new Buffer(settings.veryOldPrivateKey, 'hex')
-  }
-
-  if (settings.oldPrivateSeed || settings.oldPrivateSeedWIF) {
-
-    var oldSeed = settings.oldPrivateSeed || settings.oldPrivateSeedWIF
-    oldSeed = crypto.createHash('sha256').update(oldSeed).digest()
-    oldSeed = crypto.createHash('sha256').update(oldSeed).digest('hex')
-    settings.privateSeed = oldSeed
-    console.warn('Deprecated: veryOldPrivateKey, oldPrivateSeed and oldPrivateSeedWIF are deprecated, Please get your new privateSeed (for the same wallet) by getPrivateSeed or getPrivateSeedWIF.')
-  }
-
-  if (settings.privateKey && settings.privateSeedWIF && settings.privateKey !== settings.privateSeedWIF) {
-    throw new Error('Can\'t privateKey and privateSeedWIF should be the same (can use only one).')
-  }
-
-  self.privateSeed = settings.privateSeed || null
-  self.mnemonic = settings.mnemonic || null
-
-  if (settings.privateKey) {
-    console.warn('Deprecated: Please use privateSeedWIF and not privateKey.')
-    settings.privateSeedWIF = settings.privateKey
-  }
-
-  if (settings.privateSeedWIF) {
-    var privateKeySeedBigInt = bitcoin.ECKey.fromWIF(settings.privateSeedWIF, self.network).d
-    self.privateSeed = privateKeySeedBigInt.toHex(32)
-  }
-  
-  if (!self.privateSeed && !self.mnemonic) {
-    self.mnemonic = bip39.generateMnemonic()
-    self.privateSeed = bip39.mnemonicToSeed(self.mnemonic)
-    self.needToScan = false
-  } 
-  else {
-    if (self.mnemonic) {
-      if (!bip39.validateMnemonic(self.mnemonic)) {
-        throw new Error('Bad mnemonic.')
-      }
-
-      if (self.privateSeed && self.privateSeed !== bip39.mnemonicToSeedHex(self.mnemonic)) {
-        throw new Error('mnemonic and privateSeed mismatch.')
-      }
-
-      self.privateSeed = bip39.mnemonicToSeed(self.mnemonic)
-      self.needToScan = true
-    } 
-    else {
-      if (!isValidSeed(self.privateSeed)) {
-        throw new Error('privateSeed should be a 128-512 bits hex string (32-128 chars), if you are using WIF, use privateSeedWIF instead.')
-      }
-      self.privateSeed = new Buffer(self.privateSeed, 'hex')
-      self.needToScan = true
-    }
-  }
-  self.max_empty_accounts = settings.max_empty_accounts || MAX_EMPTY_ACCOUNTS
-  self.max_empty_addresses = settings.max_empty_addresses || MAX_EMPTY_ADDRESSES
-  self.known_fringe = settings.known_fringe || []
-  self.master = bitcoin.HDNode.fromSeedHex(self.privateSeed, self.network)
-  self.nextAccount = 0
-  self.addresses = []
-  self.preAddressesNodes = {}
-  self.discovering = false
-  if (settings.ds) {
-    self.ds = settings.ds
-  }
-  self.offline = !!settings.offline
+var BIP45Wallet = function () {
+  this.seed = {}
+  this.network = 'testnet'
+  this.xPubs = []
+  this.addressIndex = 0
+  this.clientAddressIndex = 0
 }
 
-BIP45Wallet.createNewKey = function (network, pass, progressCallback, cosignerIndex) {
-  if (typeof network === 'function') {
-    progressCallback = network
-    network = null
-  }
-
-  if (typeof pass === 'function') {
-    progressCallback = pass
-    pass = null
-  }
-
-  network = (network === 'testnet' ? bitcoin.networks.testnet : bitcoin.networks.bitcoin)
-  var key = bitcoin.ECKey.makeRandom()
-  var privateKey = key.toWIF(network)
-  var privateSeed = key.d.toHex(32)
-  var master = bitcoin.HDNode.fromSeedHex(privateSeed, network)
-  var node = master
-
-  // BIP0045:
-  // purpose
-  node = node.deriveHardened(45)
-  // cosigner index
-
-  node = node.deriveHardened(cosignerIndex)
-  // account
-  node = node.deriveHardened(0)
-
-  var extendedKey = node.toBase58(false)
-
-  var answer = {
-    privateKey: privateKey,
-    extendedPublicKey: extendedKey
-  }
-
-  if (pass) {
-    delete answer.privateKey
-    answer.encryptedPrivateKey = BIP45Wallet.encryptPrivateKey(privateKey, pass, progressCallback)
-  }
-
-  return answer
+BIP45Wallet.prototype.getSeed = function () {
+  return this.seed
 }
 
-// TODO
+BIP45Wallet.prototype.setSeed = function (mnemonic, password) {
+  var seed = bip39.mnemonicToSeed(mnemonic, password)
+  this.seed = seed
+}
+
+BIP45Wallet.prototype.generateMnemonicSeed = function (password) {
+  var mnemonic = bip39.generateMnemonic()
+  this.setSeed(mnemonic, password)
+  console.log('Your mnemonic is:\n%s\nWrite it down and don\'t lose it', mnemonic)
+}
+
+BIP45Wallet.prototype.deriveXpubFromSeed = function (cosignerIndex) {
+  m = bitcoin.HDNode.fromBase58(seed, network)
+
+  return m.derivePath("m/").neutered().toBase58()
+}
+
+BIP45Wallet.deriveXprivFromSeed = function (seed, cosignerIndex) {
+  m = bitcoin.HDNode.fromBase58(seed, network)
+
+  return m.derivePath("m/").toBase58()
+}
+
+BIP45Wallet.derivePublicKey = function (xPub, change, addressIndex) {
+  m = bitcoin.HDNode.fromBase58(xPub, network)
+
+  return m.derivePath("m/" + change + "/" + addressIndex).neutered().toBase58()
+}
+
+BIP45Wallet.derivePrivateKey = function (xPriv, change, addressIndex) {
+  m = bitcoin.HDNode.fromBase58(xPub, network)
+
+  return m.derivePath("m/" + change + "/" + addressIndex).keyPair.toWIF()
+}
+
+BIP45Wallet.createTransaction = function (xPubInputs, outputAddress, outputValue, n) {
+  var currentTransactionBuilder = new bitcoin.TransactionBuilder()
+
+  var inputs = []
+
+  p2shAddress = getP2SHAddress(xPubInputs, NOT_CHANGE, self.addressIndex)
+
+  // Getting the current balance available in the current address
+  currentBalance = getAddressBalance(p2shAddress)
+
+  // Checking if the balance doesn't allow the requested transaction
+  if (outputValue > currentBalance) {
+    console.error('You are trying to send more bitcoins than you have!')
+    return
+  }
+
+  // Getting the last unspent transaction
+  lastUnspentTransaction = getLastTransaction(p2shAddress)
+
+  // Adding the input
+  currentTransactionBuilder.addInput(lastUnspentTransaction.tx, lastUnspentTransaction.n)
+
+  // Adding the output
+  currentTransactionBuilder.addOutput(outputAddress, outputValue)
+
+  recommendedFee = currentTransactionBuilder.tx.byteLength*0.0000001
+
+  // Checking if the transaction fee is less than recommended 
+  // Assuming 10 satoshis per byte
+  if (outputValue - currentBalance < recommendedFee) {
+    console.warn('You are giving less transaction fee than recommended')
+  }
+
+  // Checking if there is change from the transaction and sending it to a change address, if yes
+  if (outputValue + recommendedFee < currentBalance) {
+    changeP2SHAddress = getP2SHAddress(xPubInputs, CHANGE, self.changeAddressIndex)
+    currentTransactionBuilder.addOutput(changeP2SHAddress, currentBalance - outputValue - recommendedFee)
+    console.log('Returning the difference between your balance and the output value to a change address @ %s', changeP2SHAddress)
+  }
+
+  return currentTransactionBuilder.buildIncomplete().toHex()
+}
+
+BIP45Wallet.signYourself = function (inputTxHex, privKey) {
+  var tx = bitcoin.Transaction.fromHex(inputTxHex)
+  var currentTransactionBuilder = bitcoin.TransactionBuilder.fromTransaction(tx)
+}
+
+// TODO - remove this after you finish BIP45Wallet.signYourself
 BIP45Wallet.sign = function (unsignedTxHex, privateKey) {
   var tx = bitcoin.Transaction.fromHex(unsignedTxHex)
   var txb = bitcoin.TransactionBuilder.fromTransaction(tx)
@@ -161,15 +134,66 @@ BIP45Wallet.sign = function (unsignedTxHex, privateKey) {
   return tx.toHex()
 }
 
-BIP45Wallet.createTransaction = function (inputs, outputs, values) {
-  var currentTransactionBuilder = new bitcoin.TransactionBuilder()
+BIP45Wallet.publishTransaction = function (txHex) {
 
-  currentTransactionBuilder.addInput(multiSigAddress, 0)
+  rawResponse = request.post(BLOCKR_PUBLISH_TRANSACTION_URL, { hex: txHex }, function (err, httpResponse, body) {
 
-  for (i = 0; i < outputs.length; i++) {
-    currentTransactionBuilder.addOutput(outputs[i], values[i])
+    var parsedResponse = JSON.parse(body)
+
+    if (parsedResponse.status !== 'success') {
+        throw new Error('Received a non successful response from blockr')
+    }
+  })
+}
+
+BIP45Wallet.getLastTransaction = function (publicAddress) {
+  var rawResponse
+  var parsedResponse
+
+  rawResponse = request(BLOCKR_ADDR_INFO_REQUEST_URL_PREFIX + publicAddress)
+  parsedResponse = JSON.parse(rawResponse)
+
+  if (parsedResponse.status !== 'success') {
+      throw new Error('Received a non successful response from blockr')
   }
 
-  return currentTransactionBuilder.buildIncomplete()
-
+  // [0] because we are taking the first transaction in the list, which is the last one, chronologically
+  var currentTx = parsedResponse.data.unspent[0].tx
+  var currentN = parsedResponse.data.unspent[0].n
+  
+  return { 'tx': currentTx, 'n': currentN }
 }
+
+BIP45Wallet.getAddressBalance = function (publicAddress) {
+  var rawResponse
+  var parsedResponse
+
+  rawResponse = request(BLOCKR_ADDR_BALANCE_REQUEST_URL_PREFIX + publicAddress)
+  parsedResponse = JSON.parse(rawResponse)
+
+  if (parsedResponse.status !== 'success') {
+      throw new Error('Received a non successful response from blockr')
+  }
+
+  var currentBalance = parsedResponse.data.balance
+  
+  return currentBalance
+}
+
+BIP45Wallet.getP2SHAddress = function (xPubInputs, change, addressIndex) {
+  // Sorting the array, so that in the following loop I can use i as the cosigner index
+  xPubInputs.sort()
+
+  for (i = 0; i < xPubInputs.length; i++) {
+      inputs.add(BIP45Wallet.derivePublicKey(xPubInputs[i], change, addressIndex))
+  }
+
+  // Creating the P2SH address
+  var redeemScript = bitcoin.script.multisigOutput(n, inputs)
+  var scriptPubKey = bitcoin.script.scriptHashOutput(bitcoin.crypto.hash160(redeemScript))
+  var p2shAddress = bitcoin.address.fromOutputScript(scriptPubKey, network)
+
+  return p2shAddress
+}
+
+module.exports = BIP45Wallet
