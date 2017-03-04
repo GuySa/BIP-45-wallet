@@ -29,29 +29,15 @@
   },
   "keywords": [
     "hdwallet",
-    "bip32",
-    "bip44",
-    "bitcoin",
-    "colored",
-    "coins"
+    "multisig",
+    "bip45"
   ],
   "contributors": [
     {
-      "name": "Eliran Zach",
-      "email": "thehobbit85@gmail.com"
-    },
-    {
-      "name": "bejavu",
-      "email": "tal@colu.com"
-    },
-    {
-      "name": "oleiba",
-      "email": "oded@colu.com"
+      "name": "Guy Sapire",
+      "email": "guysapire@gmail.com"
     }
   ],
   "license": "MIT",
-  "bugs": {
-    "url": "https://github.com/Colored-Coins/hdwallet/issues"
-  },
-  "homepage": "https://github.com/Colored-Coins/hdwallet"
+  "homepage": "https://github.com/GuySa/BIP-45-Wallet"
 }
