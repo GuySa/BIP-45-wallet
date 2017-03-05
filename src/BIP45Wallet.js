@@ -17,16 +17,15 @@ var BLOCKR_PUBLISH_TRANSACTION_URL = 'http://btc.blockr.io/api/v1/tx/push'
 var CHANGE = 1
 var NOT_CHANGE = 0
 
-
 var BIP45Wallet = function () {
   this.seed = {}
-  this.network = 'testnet'
+  this.network = bitcoin.networks.testnet
   this.otherXpubs = []
   this.addressIndex = 0
   this.clientAddressIndex = 0
 }
 
-BIP45wallet.prototype.getMyXpub = function () {
+BIP45Wallet.prototype.getMyXpub = function () {
   return this.deriveXpubFromSeed()
 }
 
@@ -50,25 +49,25 @@ BIP45Wallet.prototype.generateMnemonicSeed = function (password) {
 }
 
 BIP45Wallet.prototype.deriveXpubFromSeed = function () {
-  m = bitcoin.HDNode.fromBase58(this.seed, this.network)
+  m = bitcoin.HDNode.fromSeedBuffer(this.seed, this.network)
 
-  return m.derivePath("m/").neutered().toBase58()
+  return m.neutered().toBase58()
 }
 
 BIP45Wallet.prototype.deriveXprivFromSeed = function () {
-  m = bitcoin.HDNode.fromBase58(this.seed, this.network)
+  m = bitcoin.HDNode.fromSeedBuffer(this.seed, this.network)
 
-  return m.derivePath("m/").toBase58()
+  return m.toBase58()
 }
 
 BIP45Wallet.derivePublicKey = function (xPub, change, addressIndex) {
-  m = bitcoin.HDNode.fromBase58(xPub, network)
+  m = bitcoin.HDNode.fromBase58(xPub, this.network)
 
   return m.derivePath("m/" + change + "/" + addressIndex).neutered().toBase58()
 }
 
 BIP45Wallet.derivePrivateKey = function (xPriv, change, addressIndex) {
-  m = bitcoin.HDNode.fromBase58(xPub, network)
+  m = bitcoin.HDNode.fromBase58(xPriv, network)
 
   return m.derivePath("m/" + change + "/" + addressIndex).keyPair.toWIF()
 }
@@ -76,9 +75,9 @@ BIP45Wallet.derivePrivateKey = function (xPriv, change, addressIndex) {
 BIP45Wallet.prototype.createTransaction = function (outputAddress, outputValue, n) {
   var currentTransactionBuilder = new bitcoin.TransactionBuilder()
 
-  var inputs = []
+  xPubInputs = this.otherXpubs.concat(this.getMyXpub())
 
-  p2shAddress = getP2SHAddress(xPubInputs, NOT_CHANGE, self.addressIndex)
+  p2shAddress = this.getP2SHAddress(xPubInputs, NOT_CHANGE, this.addressIndex, n)
 
   // Getting the current balance available in the current address
   currentBalance = getAddressBalance(p2shAddress)
@@ -180,7 +179,7 @@ BIP45Wallet.getAddressBalance = function (publicAddress) {
   parsedResponse = JSON.parse(rawResponse)
 
   if (parsedResponse.status !== 'success') {
-      throw new Error('Received a non successful response from blockr')
+    throw new Error('Received a non successful response from blockr')
   }
 
   var currentBalance = parsedResponse.data.balance
@@ -188,12 +187,18 @@ BIP45Wallet.getAddressBalance = function (publicAddress) {
   return currentBalance
 }
 
-BIP45Wallet.getP2SHAddress = function (xPubInputs, change, addressIndex) {
+BIP45Wallet.prototype.getP2SHAddress = function (xPubInputs, change, addressIndex, n) {
+  var inputs = []
+
   // Sorting the array, so that in the following loop I can use i as the cosigner index
   xPubInputs.sort()
 
   for (i = 0; i < xPubInputs.length; i++) {
-      inputs.add(BIP45Wallet.derivePublicKey(xPubInputs[i], change, addressIndex))
+    console.log('***********')
+    console.log('i = %d', i);
+    console.log('typeof = %s', typeof xPubInputs[i])
+    console.log(xPubInputs[i])
+    // inputs.add(BIP45Wallet.derivePublicKey(xPubInputs[i], change, addressIndex))
   }
 
   // Creating the P2SH address
