@@ -2,7 +2,7 @@
   "name": "BIP45Wallet",
   "version": "0.7.1",
   "description": "BIP32 & BIP44 Hierarchical Deterministic Wallet.",
-  "main": "src/hdwallet.js",
+    "main": "src/BIP45Wallet.js",
   "dependencies": {
     "bip38": "1.4.0",
     "bip39": "^2.2.0",
